@@ -1,13 +1,14 @@
-import numpy as np
-from math import sin, cos
-from random import randint
-from PIL import Image
 from itertools import product
-import time
+from math import sin, cos
+import numpy as np
 import os
+from PIL import Image
+from random import randint
 import sys
+from thread_with_return import ThreadWithReturn
+import time
 
-PATH = r"/home/yuval/Documents/yuval/Devops-linux/python/tryouts/images"
+PATH = r"/home/yuval/Documents/yuval/Devops-linux/python/perlin/images"
 Q = 0.5
 C = 2
 LAYERS = 10
@@ -29,10 +30,23 @@ class PerlinNoise:
                 self.corners_gradient[(corner_x, corner_y)] = (vector_x, vector_y)
 
 
-    def __init__(self, x_size, y_size) -> None:
+    def create_array(self, frequency):
+        x_pixels = int(self.x_size * frequency)
+        y_pixels = int(self.y_size * frequency)
+
+        array_x = np.arange(0, x_pixels) / frequency
+        array_y = np.arange(0, y_pixels) / frequency
+        pairs = np.array(list(product(array_x, array_y))).T
+
+        self.array_x = pairs[0].reshape(x_pixels, y_pixels)
+        self.array_y = pairs[1].reshape(x_pixels, y_pixels)
+
+
+    def __init__(self, x_size, y_size, frequency) -> None:
         self.x_size = x_size 
         self.y_size = y_size
         self.init_random_gradient()
+        self.create_array(frequency)
 
 
     @staticmethod
@@ -75,16 +89,17 @@ class PerlinNoise:
         return dot_l + self.smothstep(w) * (dot_r - dot_l)
 
 
-    def create_array(self, frequency):
-        x_pixels = int(self.x_size * frequency)
-        y_pixels = int(self.y_size * frequency)
+    def apply_algorithms(self, part):
+        
+        if part == 1:
+        
+            x = self.array_x[:800]
+            y = self.array_y[:800]
 
-        array_x = np.arange(0, x_pixels) / frequency
-        array_y = np.arange(0, y_pixels) / frequency
-        pairs = np.array(list(product(array_x, array_y))).T
+        else:
+            x = self.array_x[800:]
+            y = self.array_y[800:]
 
-        x = pairs[0].reshape(x_pixels, y_pixels)
-        y = pairs[1].reshape(x_pixels, y_pixels)
 
         apply_all = np.vectorize(self.perlin)
         return apply_all(x, y)
@@ -113,8 +128,8 @@ def save_img(img):
         start = 6
         end = current.find('.')
         next = int(current[start:end]) + 1
-        
-    
+
+
     name = f"perlin{next}.PNG"
     img = img.convert("L")
     img.save(f"{PATH}/{name}")
@@ -139,9 +154,24 @@ def main():
 
     #while corners < pixels:
     for i in range(LAYERS):
-        perlin_instance = PerlinNoise(corners, corners)
-        current_image_array = perlin_instance.create_array(frequency)
+        print(i)
+        perlin_instance = PerlinNoise(corners, corners, frequency)
+        #current_image_array = perlin_instance.create_array(frequency)
 
+        t1 = ThreadWithReturn(target=perlin_instance.apply_algorithms, args=(1,))
+        t2 = ThreadWithReturn(target=perlin_instance.apply_algorithms, args=(2,))
+
+        t1.start()
+        t2.start()
+
+        part1 = t1.join()
+        part2 = t2.join()
+
+        #print(part1.shape)
+        #print(part2.shape)
+
+        current_image_array = np.append(part1, part2, axis = 0)
+        
         if image_array is None:
             image_array = current_image_array
 
