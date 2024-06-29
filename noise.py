@@ -2,7 +2,6 @@ from glob import glob
 from itertools import product
 from math import sin, cos, sqrt
 from multiprocessing import Process
-from multiprocessing.managers import NamespaceProxy
 import numpy as np
 import os
 from PIL import Image
@@ -11,10 +10,6 @@ import sys
 import time
 
 PATH = r"/home/yuval/Documents/yuval/Devops-linux/python/perlin/images"
-
-
-class ProxyBase(NamespaceProxy):
-    _exposed_ = ('__getattribute__', '__setattr__', '__delattr__')
 
 
 class PerlinNoise:
@@ -108,10 +103,7 @@ class PerlinNoise:
 
         
 def normalize(array):
-    array_min = abs(np.min(array))
-
-    array += array_min
-    
+    array += abs(np.min(array))
     array_max = np.max(array)
 
     return array / array_max * 255 
@@ -130,7 +122,6 @@ def save_img(img):
     img = img.convert("L")
     img.save(f"{PATH}/{name}")
 
-    img = Image.open(f"{PATH}/{name}")
     img.show()
 
 
@@ -143,8 +134,10 @@ def time_program(function):
 
 
 def process_init(i, corners, frequency):
+    print(i)
     perlin_instance = PerlinNoise(corners, corners, frequency)
     pixels, gradients = perlin_instance.apply_algorithms()
+
     np.save(f"./array/pixels{i}.npy", pixels)
     np.save(f"./array/gradients{i}.npy", gradients)
 
@@ -165,9 +158,10 @@ def main():
 
     #while corners < pixels:
     for i in range(layers):
-        process_i = Process(target = process_init, args = [i, corners, frequency])
-        process_i.start()
-        processes.append(process_i)
+        print(1)
+        process = Process(target = process_init, args = [i, corners, frequency])
+        process.start()
+        processes.append(process)
 
         new_frequency = frequency / 2
         corners = corners * 2
@@ -176,7 +170,6 @@ def main():
 
     for process in processes:
         process.join()
-        process.close()
 
     for i in range(layers):
         current_image_array = np.load(f"./array/pixels{i}.npy")
