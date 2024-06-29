@@ -1,17 +1,20 @@
+from glob import glob
 from itertools import product
-from math import sin, cos
+from math import sin, cos, sqrt
+from multiprocessing import Process
+from multiprocessing.managers import NamespaceProxy
 import numpy as np
 import os
 from PIL import Image
 from random import randint
 import sys
-from thread_with_return import ThreadWithReturn
 import time
 
 PATH = r"/home/yuval/Documents/yuval/Devops-linux/python/perlin/images"
-Q = 0.5
-C = 2
-LAYERS = 10
+
+
+class ProxyBase(NamespaceProxy):
+    _exposed_ = ('__getattribute__', '__setattr__', '__delattr__')
 
 
 class PerlinNoise:
@@ -45,6 +48,7 @@ class PerlinNoise:
     def __init__(self, x_size, y_size, frequency) -> None:
         self.x_size = x_size 
         self.y_size = y_size
+        self.result = {}
         self.init_random_gradient()
         self.create_array(frequency)
 
@@ -89,31 +93,28 @@ class PerlinNoise:
         return dot_l + self.smothstep(w) * (dot_r - dot_l)
 
 
-    def apply_algorithms(self, part):
+    def calc_pixel(self, x, y):
+        result = self.perlin(x, y)
+        gradient_y = (self.perlin(x, y + 0.001) - result) / 0.001
+        gradient_x = (self.perlin(x + 0.001, y) - result) / 0.001
+        gradient = sqrt(gradient_y ** 2 + gradient_x ** 2)
+
+        return result, gradient
+
+
+    def apply_algorithms(self):
+        apply_all = np.vectorize(self.calc_pixel)
+        return apply_all(self.array_x, self.array_y)
+
         
-        if part == 1:
-        
-            x = self.array_x[:800]
-            y = self.array_y[:800]
-
-        else:
-            x = self.array_x[800:]
-            y = self.array_y[800:]
-
-
-        apply_all = np.vectorize(self.perlin)
-        return apply_all(x, y)
-
-
 def normalize(array):
     array_min = abs(np.min(array))
+
+    array += array_min
+    
     array_max = np.max(array)
 
-    abs_max = max(array_min, array_max)
-
-    array = array / abs_max
-    array = (array + 1) * 127.5 
-    return array
+    return array / array_max * 255 
 
 
 def save_img(img):
@@ -123,12 +124,7 @@ def save_img(img):
         next = 0
 
     else:    
-        current = max(images)
-    
-        start = 6
-        end = current.find('.')
-        next = int(current[start:end]) + 1
-
+        next = max([int(image[6:image.find('.')]) for image in images]) + 1
 
     name = f"perlin{next}.PNG"
     img = img.convert("L")
@@ -146,47 +142,56 @@ def time_program(function):
     print(f'{float(end - start):.8f}')
 
 
+def process_init(i, corners, frequency):
+    perlin_instance = PerlinNoise(corners, corners, frequency)
+    pixels, gradients = perlin_instance.apply_algorithms()
+    np.save(f"./array/pixels{i}.npy", pixels)
+    np.save(f"./array/gradients{i}.npy", gradients)
+
+
 def main():
+    files = glob('./array/*')
+    for f in files:
+        os.remove(f)
+
     pixels = int(sys.argv[1])
-    frequency =  pixels / C
-    corners = C
+    corners = int(sys.argv[2])
+    layers = int(sys.argv[3])
+    frequency =  pixels / corners
+
     image_array = None
+    gradient_array = None
+    processes = [] 
 
     #while corners < pixels:
-    for i in range(LAYERS):
-        print(i)
-        perlin_instance = PerlinNoise(corners, corners, frequency)
-        #current_image_array = perlin_instance.create_array(frequency)
-
-        t1 = ThreadWithReturn(target=perlin_instance.apply_algorithms, args=(1,))
-        t2 = ThreadWithReturn(target=perlin_instance.apply_algorithms, args=(2,))
-
-        t1.start()
-        t2.start()
-
-        part1 = t1.join()
-        part2 = t2.join()
-
-        #print(part1.shape)
-        #print(part2.shape)
-
-        current_image_array = np.append(part1, part2, axis = 0)
-        
-        if image_array is None:
-            image_array = current_image_array
-
-        else:
-            w = (1 * (Q ** i))
-            sum_w = (Q ** (i) - 1) / -Q
-
-            image_array = image_array * sum_w + w * current_image_array 
-            image_array = image_array / (sum_w + w) 
+    for i in range(layers):
+        process_i = Process(target = process_init, args = [i, corners, frequency])
+        process_i.start()
+        processes.append(process_i)
 
         new_frequency = frequency / 2
         corners = corners * 2
 
         frequency = new_frequency
-    
+
+    for process in processes:
+        process.join()
+        process.close()
+
+    for i in range(layers):
+        current_image_array = np.load(f"./array/pixels{i}.npy")
+        current_gradient_array = np.load(f"./array/gradients{i}.npy")
+
+        if image_array is None:
+            gradient_array = current_gradient_array
+            image_array = current_image_array * (1 / (1 + gradient_array))
+
+        else:
+            amplitude = 0.5 ** i
+
+            gradient_array += current_gradient_array * amplitude
+            image_array += amplitude * current_image_array  * (1 / (1 + gradient_array))
+
     image_array = normalize(image_array)
 
     image_array = np.asarray(image_array)
@@ -194,6 +199,7 @@ def main():
     img = Image.fromarray(image_array)
 
     save_img(img)
+
 
 if __name__ == "__main__":
     time_program(main)
