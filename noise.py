@@ -134,7 +134,6 @@ def time_program(function):
 
 
 def process_init(i, corners, frequency):
-    print(i)
     perlin_instance = PerlinNoise(corners, corners, frequency)
     pixels, gradients = perlin_instance.apply_algorithms()
 
@@ -158,7 +157,6 @@ def main():
 
     #while corners < pixels:
     for i in range(layers):
-        print(1)
         process = Process(target = process_init, args = [i, corners, frequency])
         process.start()
         processes.append(process)
